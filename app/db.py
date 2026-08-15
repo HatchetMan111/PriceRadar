@@ -12,6 +12,13 @@ CREATE TABLE IF NOT EXISTS watches (
     currency TEXT DEFAULT 'EUR',
     interval_seconds INTEGER NOT NULL DEFAULT 3600,
     active INTEGER NOT NULL DEFAULT 1,
+    category TEXT DEFAULT 'other',
+    unit TEXT,
+    pack_quantity REAL,
+    consumption_per_month REAL,
+    stock_quantity REAL,
+    buy_below REAL,
+    buy_when_days_left REAL,
     last_price REAL,
     last_checked TEXT,
     last_status TEXT,
@@ -29,12 +36,28 @@ CREATE TABLE IF NOT EXISTS price_history (
 );
 """
 
+MIGRATIONS = {
+    "category": "ALTER TABLE watches ADD COLUMN category TEXT DEFAULT 'other'",
+    "unit": "ALTER TABLE watches ADD COLUMN unit TEXT",
+    "pack_quantity": "ALTER TABLE watches ADD COLUMN pack_quantity REAL",
+    "consumption_per_month": "ALTER TABLE watches ADD COLUMN consumption_per_month REAL",
+    "stock_quantity": "ALTER TABLE watches ADD COLUMN stock_quantity REAL",
+    "buy_below": "ALTER TABLE watches ADD COLUMN buy_below REAL",
+    "buy_when_days_left": "ALTER TABLE watches ADD COLUMN buy_when_days_left REAL",
+}
+
+
 def init_db():
     BASE_DIR.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(DB_PATH) as con:
         con.executescript(SCHEMA)
+        existing = {row[1] for row in con.execute("PRAGMA table_info(watches)")}
+        for column, statement in MIGRATIONS.items():
+            if column not in existing:
+                con.execute(statement)
         con.execute("PRAGMA journal_mode=WAL")
         con.execute("PRAGMA foreign_keys=ON")
+
 
 @contextmanager
 def connect():
