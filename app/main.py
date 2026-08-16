@@ -1,22 +1,68 @@
+import logging
+import re
+from contextlib import asynccontextmanager
 from pathlib import Path
 from statistics import mean
-from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+
+from fastapi import APIRouter, BackgroundTasks, Depends, FastAPI, Form, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from .db import init_db, connect
-from .worker import start_scheduler, schedule_watch, unschedule_watch, check_watch
+
+from .auth import auth_enabled, require_auth
 from .config import DEFAULT_INTERVAL
+from .db import connect, init_db
+from .worker import check_watch, schedule_watch, start_scheduler, unschedule_watch
+
+logger = logging.getLogger("priceradar")
 
 BASE = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE / "templates"))
-app = FastAPI(title="PriceRadar", version="0.2.0")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    init_db()
+    start_scheduler()
+    if not auth_enabled():
+        logger.warning(
+            "PRICERADAR_AUTH_USER / PRICERADAR_AUTH_PASSWORD are not set - "
+            "the web UI and API are running WITHOUT authentication. Anyone "
+            "who can reach this host on the network can add/delete watches "
+            "and trigger outbound requests. Set both env vars to enable "
+            "HTTP Basic Auth."
+        )
+    yield
+
+
+app = FastAPI(title="PriceRadar", version="0.3.0", lifespan=lifespan)
+
+# Every route except /health requires auth when credentials are configured.
+protected = APIRouter(dependencies=[Depends(require_auth)])
 
 CATEGORIES = ["home", "mobility", "food", "household", "workshop", "energy", "other"]
 UNITS = ["piece", "kg", "g", "l", "ml", "m", "m2", "m3", "kwh", "hour", "pack"]
 
+_NUMBER_STRIP = re.compile(r"[^\d,.\-]")
+
 
 def _number(value: str):
-    return float(value.replace(",", ".")) if value and value.strip() else None
+    """Parse optional form numbers in DE/EN notation and ignore unit text."""
+    if not value or not value.strip():
+        return None
+    cleaned = _NUMBER_STRIP.sub("", value.strip())
+    if not cleaned or cleaned in {"-", ".", ","}:
+        return None
+    if "," in cleaned and "." in cleaned:
+        if cleaned.rfind(",") > cleaned.rfind("."):
+            cleaned = cleaned.replace(".", "").replace(",", ".")
+        else:
+            cleaned = cleaned.replace(",", "")
+    elif "," in cleaned:
+        cleaned = cleaned.replace(",", ".")
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
 
 
 def _buy_state(w):
@@ -45,32 +91,26 @@ def _enrich(w):
     return data
 
 
-@app.on_event("startup")
-def startup():
-    init_db()
-    start_scheduler()
-
-
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "priceradar", "version": "0.2.0"}
+    return {"status": "ok", "service": "priceradar", "version": "0.3.0", "auth_enabled": auth_enabled()}
 
 
-@app.get("/api/watches")
+@protected.get("/api/watches")
 def api_watches():
     with connect() as con:
         rows = con.execute("SELECT * FROM watches ORDER BY id DESC").fetchall()
     return [_enrich(r) for r in rows]
 
 
-@app.get("/api/watches/{watch_id}/history")
+@protected.get("/api/watches/{watch_id}/history")
 def api_history(watch_id: int):
     with connect() as con:
         rows = con.execute("SELECT price,currency,checked_at,source FROM price_history WHERE watch_id=? ORDER BY checked_at ASC", (watch_id,)).fetchall()
     return [dict(r) for r in rows]
 
 
-@app.get("/api/market")
+@protected.get("/api/market")
 def api_market():
     with connect() as con:
         rows = con.execute("SELECT * FROM watches WHERE last_price IS NOT NULL ORDER BY category,name").fetchall()
@@ -80,22 +120,24 @@ def api_market():
     return {"categories": groups, "tracked_items": len(rows)}
 
 
-@app.get("/api/market/index")
+@protected.get("/api/market/index")
 def api_market_index():
+    category_values = {}
     with connect() as con:
         rows = con.execute("SELECT * FROM watches WHERE last_price IS NOT NULL").fetchall()
-    category_values = {}
-    for row in rows:
-        with connect() as con:
-            history = con.execute("SELECT price FROM price_history WHERE watch_id=? ORDER BY checked_at DESC LIMIT 30", (row["id"],)).fetchall()
-        prices = [float(x["price"]) for x in history]
-        if len(prices) >= 2 and prices[-1] > 0:
-            category = row["category"] or "other"
-            category_values.setdefault(category, []).append((prices[0] / prices[-1] - 1) * 100)
+        for row in rows:
+            history = con.execute(
+                "SELECT price FROM price_history WHERE watch_id=? ORDER BY checked_at DESC LIMIT 30",
+                (row["id"],),
+            ).fetchall()
+            prices = [float(x["price"]) for x in history]
+            if len(prices) >= 2 and prices[-1] > 0:
+                category = row["category"] or "other"
+                category_values.setdefault(category, []).append((prices[0] / prices[-1] - 1) * 100)
     return {"index_change_percent": {k: round(mean(v), 2) for k, v in category_values.items() if v}}
 
 
-@app.get("/", response_class=HTMLResponse)
+@protected.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
     with connect() as con:
         watches = con.execute("SELECT w.*,(SELECT MIN(price) FROM price_history p WHERE p.watch_id=w.id) AS lowest_price,(SELECT COUNT(*) FROM price_history p WHERE p.watch_id=w.id) AS checks FROM watches w ORDER BY category,w.id DESC").fetchall()
@@ -113,8 +155,9 @@ def dashboard(request: Request):
     })
 
 
-@app.post("/watches")
+@protected.post("/watches")
 def create_watch(
+    background_tasks: BackgroundTasks,
     name: str = Form(...), url: str = Form(...), selector: str = Form(""), target_price: str = Form(""),
     interval_seconds: int = Form(DEFAULT_INTERVAL), category: str = Form("other"), unit: str = Form(""),
     pack_quantity: str = Form(""), consumption_per_month: str = Form(""), stock_quantity: str = Form(""),
@@ -131,17 +174,17 @@ def create_watch(
         )
         watch_id = cur.lastrowid
     schedule_watch(watch_id, interval)
-    check_watch(watch_id)
+    background_tasks.add_task(check_watch, watch_id)
     return RedirectResponse("/", status_code=303)
 
 
-@app.post("/watches/{watch_id}/check")
-def manual_check(watch_id: int):
-    check_watch(watch_id)
+@protected.post("/watches/{watch_id}/check")
+def manual_check(watch_id: int, background_tasks: BackgroundTasks):
+    background_tasks.add_task(check_watch, watch_id)
     return RedirectResponse("/", status_code=303)
 
 
-@app.post("/watches/{watch_id}/toggle")
+@protected.post("/watches/{watch_id}/toggle")
 def toggle_watch(watch_id: int):
     with connect() as con:
         row = con.execute("SELECT active,interval_seconds FROM watches WHERE id=?", (watch_id,)).fetchone()
@@ -156,10 +199,13 @@ def toggle_watch(watch_id: int):
     return RedirectResponse("/", status_code=303)
 
 
-@app.post("/watches/{watch_id}/delete")
+@protected.post("/watches/{watch_id}/delete")
 def delete_watch(watch_id: int):
     unschedule_watch(watch_id)
     with connect() as con:
         con.execute("DELETE FROM price_history WHERE watch_id=?", (watch_id,))
         con.execute("DELETE FROM watches WHERE id=?", (watch_id,))
     return RedirectResponse("/", status_code=303)
+
+
+app.include_router(protected)
