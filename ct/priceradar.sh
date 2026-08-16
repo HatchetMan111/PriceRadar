@@ -12,6 +12,7 @@ BRIDGE="${BRIDGE:-vmbr0}"
 command -v pveversion >/dev/null || { echo 'Proxmox VE not detected.'; exit 1; }
 command -v pct >/dev/null || { echo 'pct not found.'; exit 1; }
 command -v pveam >/dev/null || { echo 'pveam not found.'; exit 1; }
+[[ "$REPO_URL" =~ ^https://[A-Za-z0-9._-]+(/[A-Za-z0-9._~%+-]+)*\.git$ ]] || { echo "PRICERADAR_REPO_URL looks invalid: $REPO_URL"; exit 1; }
 info(){ printf '\033[1;36m[INFO]\033[0m %s\n' "$*"; }
 ok(){ printf '\033[1;32m[ OK ]\033[0m %s\n' "$*"; }
 err(){ printf '\033[1;31m[ERR ]\033[0m %s\n' "$*" >&2; }
@@ -29,7 +30,10 @@ info "Creating unprivileged PriceRadar LXC $CTID"
 pct create "$CTID" "$TEMPLATE_STORAGE:vztmpl/$TEMPLATE" -hostname "$HOSTNAME" -cores "$CORES" -memory "$RAM" -rootfs "$CONTAINER_STORAGE:$DISK" -net0 "name=eth0,bridge=$BRIDGE,ip=dhcp" -unprivileged 1 -onboot 1 -ostype debian -tags priceradar -start 1
 ok "LXC $CTID created"
 info 'Installing PriceRadar inside LXC'
-pct exec "$CTID" -- bash -lc "apt-get update && apt-get install -y curl && curl -fsSL https://raw.githubusercontent.com/HatchetMan111/PriceRadar/main/install/install-app.sh | PRICERADAR_REPO_URL='$REPO_URL' bash"
+# Pass the validated repository URL as an environment value rather than
+# interpolating it into shell source executed by pct exec.
+pct exec "$CTID" -- env "PRICERADAR_REPO_URL=$REPO_URL" bash -c \
+    'apt-get update && apt-get install -y curl && curl -fsSL https://raw.githubusercontent.com/HatchetMan111/PriceRadar/main/install/install-app.sh | bash'
 IP="$(pct exec "$CTID" -- hostname -I 2>/dev/null | awk '{print $1}')"
 echo '=============================================='
 ok 'PriceRadar installation complete'
