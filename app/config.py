@@ -8,3 +8,13 @@ DEFAULT_INTERVAL = int(os.getenv("PRICERADAR_DEFAULT_INTERVAL", "3600"))
 REQUEST_TIMEOUT = float(os.getenv("PRICERADAR_REQUEST_TIMEOUT", "30"))
 MIN_REQUEST_DELAY = float(os.getenv("PRICERADAR_MIN_REQUEST_DELAY", "2"))
 RESPECT_ROBOTS = os.getenv("PRICERADAR_RESPECT_ROBOTS", "true").lower() in {"1", "true", "yes", "on"}
+
+# HTTP Basic Auth. If either value is unset, the app runs without authentication
+# (not recommended; startup logs a warning in that case).
+AUTH_USER = os.getenv("PRICERADAR_AUTH_USER") or None
+AUTH_PASSWORD = os.getenv("PRICERADAR_AUTH_PASSWORD") or None
+
+# SSRF hardening for the scraper (see app/scraper.py).
+ALLOWED_SCHEMES = {"http", "https"}
+MAX_RESPONSE_BYTES = int(os.getenv("PRICERADAR_MAX_RESPONSE_BYTES", str(5 * 1024 * 1024)))
+MAX_REDIRECTS = int(os.getenv("PRICERADAR_MAX_REDIRECTS", "5"))
