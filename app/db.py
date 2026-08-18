@@ -1,6 +1,6 @@
 import sqlite3
 from contextlib import contextmanager
-from .config import DB_PATH, BASE_DIR
+from .config import BASE_DIR, DB_PATH, DEFAULT_INTERVAL, SMART_POLLING_MAX_SECONDS, SMART_POLLING_MIN_SECONDS
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS watches (
@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS watches (
     selector TEXT,
     target_price REAL,
     currency TEXT DEFAULT 'EUR',
-    interval_seconds INTEGER NOT NULL DEFAULT 3600,
+    interval_seconds INTEGER NOT NULL DEFAULT 86400,
     active INTEGER NOT NULL DEFAULT 1,
     category TEXT DEFAULT 'other',
     unit TEXT,
@@ -19,6 +19,10 @@ CREATE TABLE IF NOT EXISTS watches (
     stock_quantity REAL,
     buy_below REAL,
     buy_when_days_left REAL,
+    smart_polling INTEGER NOT NULL DEFAULT 1,
+    polling_base_seconds INTEGER,
+    polling_min_seconds INTEGER NOT NULL DEFAULT 3600,
+    polling_max_seconds INTEGER NOT NULL DEFAULT 604800,
     last_price REAL,
     last_checked TEXT,
     last_status TEXT,
@@ -44,6 +48,10 @@ MIGRATIONS = {
     "stock_quantity": "ALTER TABLE watches ADD COLUMN stock_quantity REAL",
     "buy_below": "ALTER TABLE watches ADD COLUMN buy_below REAL",
     "buy_when_days_left": "ALTER TABLE watches ADD COLUMN buy_when_days_left REAL",
+    "smart_polling": "ALTER TABLE watches ADD COLUMN smart_polling INTEGER NOT NULL DEFAULT 1",
+    "polling_base_seconds": "ALTER TABLE watches ADD COLUMN polling_base_seconds INTEGER",
+    "polling_min_seconds": "ALTER TABLE watches ADD COLUMN polling_min_seconds INTEGER NOT NULL DEFAULT 3600",
+    "polling_max_seconds": "ALTER TABLE watches ADD COLUMN polling_max_seconds INTEGER NOT NULL DEFAULT 604800",
 }
 
 
@@ -55,6 +63,13 @@ def init_db():
         for column, statement in MIGRATIONS.items():
             if column not in existing:
                 con.execute(statement)
+        # Preserve the existing user interval as the adaptive polling baseline.
+        con.execute(
+            "UPDATE watches SET polling_base_seconds=COALESCE(polling_base_seconds, interval_seconds, ?), "
+            "polling_min_seconds=COALESCE(polling_min_seconds, ?), "
+            "polling_max_seconds=COALESCE(polling_max_seconds, ?)"
+            , (DEFAULT_INTERVAL, SMART_POLLING_MIN_SECONDS, SMART_POLLING_MAX_SECONDS)
+        )
         con.execute("PRAGMA journal_mode=WAL")
         con.execute("PRAGMA foreign_keys=ON")
 
