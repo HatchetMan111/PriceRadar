@@ -216,13 +216,47 @@ def extract_price(html: str, selector: str | None = None) -> ExtractedPrice:
     raise RuntimeError("No price could be extracted. Add a CSS selector for the exact price element.")
 
 
+def _browser_extract(url: str, selector: str | None = None) -> ExtractedPrice:
+    """Render a JS page, then reuse the deterministic parser."""
+    from .browser import fetch_rendered_html
+    return extract_price(fetch_rendered_html(url), selector)
+
+
 def check_url(url: str, selector: str | None = None) -> ExtractedPrice:
-    html = fetch_html(url)
+    """Try HTTP first, then Chromium, then optional local Ollama.
+
+    robots.txt and SSRF errors are never bypassed by a later layer.
+    """
+    html = None
+    fetch_error = None
     try:
-        return extract_price(html, selector)
-    except RuntimeError as deterministic_error:
+        html = fetch_html(url)
+    except (SSRFBlocked,) as exc:
+        raise exc
+    except RuntimeError as exc:
+        fetch_error = exc
+        if "robots.txt disallows" in str(exc):
+            raise
+
+    deterministic_error = fetch_error
+    if html is not None:
+        try:
+            return extract_price(html, selector)
+        except RuntimeError as exc:
+            deterministic_error = exc
+
+    # Browser fallback for JS-rendered pages. It still checks robots.txt and
+    # every network target; it is not intended to bypass anti-bot controls.
+    try:
+        return _browser_extract(url, selector)
+    except RuntimeError as browser_error:
+        if deterministic_error is None:
+            deterministic_error = browser_error
+
+    # Local LLM fallback only after deterministic + browser extraction fail.
+    if html is not None:
         ai_result = extract_price_with_ollama(html)
         if ai_result:
             price, currency, source = ai_result
             return ExtractedPrice(price, currency, source)
-        raise deterministic_error
+    raise deterministic_error or RuntimeError("Unable to extract price")
