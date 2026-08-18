@@ -19,6 +19,7 @@ OLLAMA_MAX_TEXT_CHARS = int(os.getenv("PRICERADAR_OLLAMA_MAX_TEXT_CHARS", "24000
 # Optional Chromium/Playwright fallback for JavaScript-rendered pages.
 BROWSER_ENABLED = os.getenv("PRICERADAR_BROWSER_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 BROWSER_TIMEOUT = float(os.getenv("PRICERADAR_BROWSER_TIMEOUT", "45"))
+PLAYWRIGHT_BROWSERS_PATH = os.getenv("PRICERADAR_PLAYWRIGHT_BROWSERS_PATH", "/opt/priceradar/browsers")
 
 # Adaptive polling. The scheduler starts with each watch's configured interval,
 # then backs off when a price remains stable and becomes more frequent after a
