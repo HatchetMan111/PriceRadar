@@ -20,12 +20,13 @@ from .config import (
     RESPECT_ROBOTS,
     USER_AGENT,
 )
+from .ollama import extract_price_with_ollama
 
 PRICE_SELECTORS = ['[itemprop="price"]','[data-price]','.price','.product-price','.product__price','.price-current','.current-price','.sale-price','.special-price','.offer-price']
 
 
 class SSRFBlocked(RuntimeError):
-    """Raised when a URL (or a redirect target) points at a disallowed host."""
+    """Raised when a URL (or redirect target) points at a disallowed host."""
 
 
 @dataclass
@@ -216,4 +217,12 @@ def extract_price(html: str, selector: str | None = None) -> ExtractedPrice:
 
 
 def check_url(url: str, selector: str | None = None) -> ExtractedPrice:
-    return extract_price(fetch_html(url), selector)
+    html = fetch_html(url)
+    try:
+        return extract_price(html, selector)
+    except RuntimeError as deterministic_error:
+        ai_result = extract_price_with_ollama(html)
+        if ai_result:
+            price, currency, source = ai_result
+            return ExtractedPrice(price, currency, source)
+        raise deterministic_error
