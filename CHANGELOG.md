@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.4.0 — Browser + local AI + smart polling
+
+**Extraction**
+
+- Added optional Playwright/Chromium rendering for JavaScript-heavy pages.
+- Extraction order is now HTTP → deterministic parser → Chromium → optional local Ollama.
+- Browser and Ollama fallbacks never bypass SSRF validation, `robots.txt`, authentication, CAPTCHAs or other access controls.
+- Ollama remains optional and only runs after deterministic extraction fails.
+
+**Smart polling**
+
+- Added adaptive polling for individual watches.
+- Stable prices back off toward a maximum interval (default 7 days).
+- Price changes shorten the next interval toward a minimum (default 1 hour).
+- Smart polling can be disabled globally or per watch.
+- Existing watch intervals are preserved as the adaptive baseline during migration.
+
+**Installer**
+
+- Playwright is installed as part of the full LXC installer.
+- Chromium is installed into `/opt/priceradar/browsers` and exposed to the systemd service.
+- Browser mode can be disabled with `PRICERADAR_INSTALL_BROWSER=false`.
+
+**Tests/docs**
+
+- Added smart-polling unit tests.
+- Added extraction-pipeline documentation covering browser mode, Ollama and robots/access-control boundaries.
+
 ## 0.3.0 — Security hardening
 
 **Security fixes**
