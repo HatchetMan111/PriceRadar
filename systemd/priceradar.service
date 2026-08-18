@@ -9,6 +9,7 @@ User=priceradar
 Group=priceradar
 WorkingDirectory=/opt/priceradar
 Environment=PRICERADAR_DATA_DIR=/var/lib/priceradar
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/priceradar/browsers
 EnvironmentFile=-/etc/priceradar.env
 ExecStart=/opt/priceradar/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8080
 Restart=always
@@ -17,7 +18,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
-ReadWritePaths=/var/lib/priceradar
+ReadWritePaths=/var/lib/priceradar /opt/priceradar/browsers
 
 [Install]
 WantedBy=multi-user.target
