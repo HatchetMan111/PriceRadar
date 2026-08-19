@@ -3,18 +3,20 @@ import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from statistics import mean
+from urllib.parse import urlparse
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from .auth import auth_enabled, require_auth
 from .config import DEFAULT_INTERVAL
-from .db import connect, init_db
+from .db import connect, get_setting, init_db, set_setting
+from .ollama import get_config as get_ollama_config, list_models, test_connection
 from .worker import check_watch, schedule_watch, start_scheduler, unschedule_watch
 
 logger = logging.getLogger("priceradar")
-
 BASE = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE / "templates"))
 
@@ -34,19 +36,15 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="PriceRadar", version="0.3.0", lifespan=lifespan)
-
-# Every route except /health requires auth when credentials are configured.
+app = FastAPI(title="PriceRadar", version="0.4.1", lifespan=lifespan)
 protected = APIRouter(dependencies=[Depends(require_auth)])
 
 CATEGORIES = ["home", "mobility", "food", "household", "workshop", "energy", "other"]
 UNITS = ["piece", "kg", "g", "l", "ml", "m", "m2", "m3", "kwh", "hour", "pack"]
-
 _NUMBER_STRIP = re.compile(r"[^\d,.\-]")
 
 
 def _number(value: str):
-    """Parse optional form numbers in DE/EN notation and ignore unit text."""
     if not value or not value.strip():
         return None
     cleaned = _NUMBER_STRIP.sub("", value.strip())
@@ -91,9 +89,19 @@ def _enrich(w):
     return data
 
 
+def _ollama_view():
+    config = get_ollama_config()
+    return {
+        "enabled": config["enabled"],
+        "url": config["url"],
+        "model": config["model"],
+        "source": "database" if get_setting("ollama.url") or get_setting("ollama.model") or get_setting("ollama.enabled") else "environment",
+    }
+
+
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "priceradar", "version": "0.3.0", "auth_enabled": auth_enabled()}
+    return {"status": "ok", "service": "priceradar", "version": "0.4.1", "auth_enabled": auth_enabled()}
 
 
 @protected.get("/api/watches")
@@ -137,6 +145,40 @@ def api_market_index():
     return {"index_change_percent": {k: round(mean(v), 2) for k, v in category_values.items() if v}}
 
 
+@protected.get("/api/ollama/models")
+def api_ollama_models():
+    try:
+        return {"ok": True, "models": list_models()}
+    except (httpx.HTTPError, ValueError) as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+
+
+@protected.post("/api/ollama/test")
+def api_ollama_test(url: str = Form("")):
+    try:
+        return test_connection(url.strip() or None)
+    except (httpx.HTTPError, ValueError) as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+
+
+@protected.post("/settings/ollama")
+def save_ollama_settings(
+    background_tasks: BackgroundTasks,
+    enabled: str = Form(""),
+    url: str = Form(...),
+    model: str = Form(...),
+):
+    url = url.strip().rstrip("/")
+    model = model.strip()
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+        return RedirectResponse("/?settings_error=invalid_url", status_code=303)
+    set_setting("ollama.enabled", "true" if enabled else "false")
+    set_setting("ollama.url", url)
+    set_setting("ollama.model", model or "qwen2.5:3b")
+    return RedirectResponse("/?settings_saved=1", status_code=303)
+
+
 @protected.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
     with connect() as con:
@@ -152,6 +194,9 @@ def dashboard(request: Request):
         "units": UNITS,
         "buy_count": buy_count,
         "soon_count": soon_count,
+        "ollama": _ollama_view(),
+        "settings_saved": request.query_params.get("settings_saved") == "1",
+        "settings_error": request.query_params.get("settings_error"),
     })
 
 
