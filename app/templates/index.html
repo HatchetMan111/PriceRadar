@@ -1,1 +1,89 @@
-<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PriceRadar</title><style>body{font-family:system-ui,sans-serif;background:#0b1020;color:#e9eefc;margin:0}main{max-width:1280px;margin:auto;padding:32px}h1{margin-bottom:4px}.muted{color:#9aa6c2}.card{background:#121a2e;border:1px solid #24304b;border-radius:14px;padding:18px;margin:18px 0}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}input,select{width:100%;box-sizing:border-box;background:#0d1426;color:#fff;border:1px solid #34415f;border-radius:8px;padding:10px;margin-top:6px}label{display:block;margin:8px 0}.btn{border:0;border-radius:8px;padding:9px 12px;background:#2d6cdf;color:#fff;cursor:pointer}.danger{background:#9d3346}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.price{font-size:22px;font-weight:700}.ok{color:#63d297}.bad{color:#ff8a8a}.buy{color:#63e6a1;font-weight:700}.soon{color:#ffd166;font-weight:700}.watch{color:#9aa6c2}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:10px;border-bottom:1px solid #26314a;vertical-align:top}code{color:#b9c8ff}.hero{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.metric{background:#121a2e;border:1px solid #24304b;border-radius:14px;padding:16px}.metric strong{display:block;font-size:28px}.hint{font-size:13px;color:#9aa6c2}@media(max-width:900px){.grid,.hero{grid-template-columns:1fr 1fr}}@media(max-width:600px){.grid,.hero{grid-template-columns:1fr}table{font-size:13px}}</style></head><body><main><h1>🛰️ PriceRadar</h1><div class="muted">Dein persönliches Preisgedächtnis · Monitor → History → Consumption → Intelligence</div><div class="hero"><div class="metric"><strong>{{ watches|length }}</strong><span class="muted">Preise überwacht</span></div><div class="metric"><strong class="buy">{{ buy_count }}</strong><span class="muted">Jetzt kaufen</span></div><div class="metric"><strong class="soon">{{ soon_count }}</strong><span class="muted">Bald kaufen</span></div><div class="metric"><strong>24/7</strong><span class="muted">lokale Überwachung</span></div></div><div class="card"><h2>➕ Preis überwachen</h2><p class="hint">Nicht nur Produkte: Heizöl, Flüssiggas, Benzin, lokale Tankstellen, Lebensmittel, Baumaterial, Verbrauchsmaterial und alles mit einer beobachtbaren Preisquelle.</p><form method="post" action="/watches"><div class="grid"><label>Name<input name="name" placeholder="Flüssiggas – Lieferant X" required></label><label>URL<input name="url" type="url" placeholder="https://example.com/product" required></label><label>Kategorie<select name="category">{% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}</select></label><label>CSS selector (optional)<input name="selector" placeholder=".price, [data-price], #product-price"></label><label>Zielpreis (optional)<input name="target_price" placeholder="0.79"></label><label>Preis kaufen unter (optional)<input name="buy_below" placeholder="0.75"></label><label>Einheit<select name="unit"><option value="">keine</option>{% for u in units %}<option value="{{ u }}">{{ u }}</option>{% endfor %}</select></label><label>Menge pro Packung<input name="pack_quantity" type="number" step="any" placeholder="750"></label><label>Verbrauch / Monat<input name="consumption_per_month" type="number" step="any" placeholder="125"></label><label>Bestand aktuell<input name="stock_quantity" type="number" step="any" placeholder="420"></label><label>Kaufen wenn Restbestand (Tage)<input name="buy_when_days_left" type="number" step="any" placeholder="30"></label><label>Intervall (Sekunden)<input name="interval_seconds" type="number" min="300" value="{{ default_interval }}"></label></div><p class="hint">Beispiel Flüssiggas: Einheit „l“, Verbrauch „125“ L/Monat, Bestand „420“ L. PriceRadar berechnet daraus die verbleibenden Tage und kann ein persönliches Kauf-Fenster anzeigen.</p><button class="btn" type="submit">Überwachen & sofort prüfen</button></form></div><div class="card"><h2>📊 Persönlicher Markt</h2><p class="hint">Die langfristige Idee: PriceRadar lernt nicht deine Identität, sondern deine beobachteten Preise, Verbrauchszyklen und Bestände. Daraus entstehen Preisverläufe, Kauf-Fenster und später ein persönlicher Preisindex.</p>{% if watches %}<table><tr><th>Artikel</th><th>Preis</th><th>Historie</th><th>Bedarf</th><th>Kauf-Fenster</th><th>Aktionen</th></tr>{% for w in watches %}<tr><td><strong>{{ w.name }}</strong><br><span class="muted">{{ w.category }}{% if w.unit %} · {{ w.unit }}{% endif %}</span>{% if w.selector %}<br><code>{{ w.selector }}</code>{% endif %}</td><td class="price">{% if w.last_price is not none %}{{ '%.2f'|format(w.last_price) }} {{ w.currency or 'EUR' }}{% else %}—{% endif %}{% if w.buy_below is not none %}<br><span class="hint">Ziel: ≤ {{ '%.2f'|format(w.buy_below) }}</span>{% endif %}</td><td>{% if w.lowest_price is not none %}Tief: <strong>{{ '%.2f'|format(w.lowest_price) }} {{ w.currency or 'EUR' }}</strong>{% else %}—{% endif %}<br><span class="hint">{{ w.checks }} Checks</span></td><td>{% if w.stock_quantity is not none %}Bestand: {{ w.stock_quantity }}{% if w.unit %} {{ w.unit }}{% endif %}{% endif %}{% if w.days_left is not none %}<br><span class="hint">ca. {{ w.days_left }} Tage</span>{% endif %}</td><td>{% if w.buy_state == 'buy' %}<span class="buy">🟢 JETZT KAUFEN</span>{% elif w.buy_state == 'soon' %}<span class="soon">🟡 BALD KAUFEN</span>{% elif w.buy_state == 'watch' %}<span class="watch">🔵 BEOBACHTEN</span>{% else %}—{% endif %}</td><td><div class="row"><form method="post" action="/watches/{{ w.id }}/check"><button class="btn">Check</button></form><form method="post" action="/watches/{{ w.id }}/toggle"><button class="btn">{% if w.active %}Pause{% else %}Resume{% endif %}</button></form><form method="post" action="/watches/{{ w.id }}/delete" onsubmit="return confirm('Delete this watch?')"><button class="btn danger">Delete</button></form></div><div class="hint">{% if w.last_status == 'ok' %}OK{% elif w.last_status == 'error' %}<span class="bad">{{ w.last_error }}</span>{% else %}pending{% endif %} · {{ w.last_checked or '' }}</div></td></tr>{% endfor %}</table>{% else %}<p class="muted">Noch keine Preise überwacht.</p>{% endif %}</div><div class="card"><h2>🧭 Die 4 Ebenen</h2><div class="grid"><div><h3>1. Monitor</h3><p class="muted">Webseiten, APIs, PDFs, lokale Preisquellen und später manuelle/Import-Quellen beobachten.</p></div><div><h3>2. History</h3><p class="muted">Preisverläufe, Tiefs, Durchschnitte, Trends und persönliche Preisindizes aufbauen.</p></div><div><h3>3. Consumption</h3><p class="muted">Verbrauch, Bestand und Kaufzyklen kennen. Daraus ergibt sich, wann ein Vorrat knapp wird.</p></div><div><h3>4. Intelligence</h3><p class="muted">Buy Windows, Anomalien, Warenkorb-Optimierung und später optionale lokale KI für Normalisierung und Entscheidungen.</p></div></div></div><div class="muted">PriceRadar 0.2.0 · <a href="/health" style="color:#9db8ff">health</a> · <a href="/api/market" style="color:#9db8ff">market API</a></div></main></body></html>
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PriceRadar</title>
+<style>
+body{font-family:system-ui,sans-serif;background:#0b1020;color:#e9eefc;margin:0}main{max-width:1280px;margin:auto;padding:32px}h1{margin-bottom:4px}.muted{color:#9aa6c2}.card{background:#121a2e;border:1px solid #24304b;border-radius:14px;padding:18px;margin:18px 0}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}input,select{width:100%;box-sizing:border-box;background:#0d1426;color:#fff;border:1px solid #34415f;border-radius:8px;padding:10px;margin-top:6px}label{display:block;margin:8px 0}.btn{border:0;border-radius:8px;padding:9px 12px;background:#2d6cdf;color:#fff;cursor:pointer}.danger{background:#9d3346}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.price{font-size:22px;font-weight:700}.ok{color:#63d297}.bad{color:#ff8a8a}.buy{color:#63e6a1;font-weight:700}.soon{color:#ffd166;font-weight:700}.watch{color:#9aa6c2}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:10px;border-bottom:1px solid #26314a;vertical-align:top}code{color:#b9c8ff}.hero{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.metric{background:#121a2e;border:1px solid #24304b;border-radius:14px;padding:16px}.metric strong{display:block;font-size:28px}.hint{font-size:13px;color:#9aa6c2}.status{padding:8px 10px;border-radius:8px;background:#0d1426;margin-top:10px}.success{border:1px solid #2b7d59}.error{border:1px solid #9d3346}@media(max-width:900px){.grid,.hero{grid-template-columns:1fr 1fr}}@media(max-width:600px){.grid,.hero{grid-template-columns:1fr}table{font-size:13px}}
+</style>
+</head>
+<body><main>
+<h1>🛰️ PriceRadar</h1>
+<div class="muted">Dein persönliches Preisgedächtnis · Monitor → History → Consumption → Intelligence</div>
+
+<div class="hero">
+<div class="metric"><strong>{{ watches|length }}</strong><span class="muted">Preise überwacht</span></div>
+<div class="metric"><strong class="buy">{{ buy_count }}</strong><span class="muted">Jetzt kaufen</span></div>
+<div class="metric"><strong class="soon">{{ soon_count }}</strong><span class="muted">Bald kaufen</span></div>
+<div class="metric"><strong>24/7</strong><span class="muted">lokale Überwachung</span></div>
+</div>
+
+<div class="card">
+<h2>🦙 Lokale KI / Ollama</h2>
+<p class="hint">Verbinde PriceRadar mit einer bestehenden Ollama-Instanz auf einem anderen LXC, deinem GPU-Server oder einem anderen Host. Die KI wird nur als optionaler Fallback für schwierige Preisextraktion verwendet.</p>
+{% if settings_saved %}<div class="status success">✓ Ollama-Einstellungen gespeichert.</div>{% endif %}
+{% if settings_error == 'invalid_url' %}<div class="status error">Die Ollama-URL muss eine gültige http:// oder https:// URL ohne Benutzername/Passwort sein.</div>{% endif %}
+<form method="post" action="/settings/ollama">
+<div class="grid">
+<label><input type="checkbox" name="enabled" value="1" {% if ollama.enabled %}checked{% endif %}> Ollama aktiviert</label>
+<label>Ollama URL<input id="ollama-url" name="url" type="url" value="{{ ollama.url }}" placeholder="http://192.168.178.101:11434" required></label>
+<label>Modell<select id="ollama-model" name="model"><option value="{{ ollama.model }}">{{ ollama.model }}</option></select></label>
+</div>
+<div class="row"><button class="btn" type="submit">Einstellungen speichern</button><button class="btn" type="button" onclick="testOllama()">Verbindung testen</button><button class="btn" type="button" onclick="loadModels()">Modelle laden</button></div>
+<div id="ollama-status" class="status">{% if ollama.enabled %}● Aktiv · {{ ollama.url }} · Modell {{ ollama.model }}{% else %}○ Deaktiviert{% endif %}</div>
+<p class="hint">Beispiel: PriceRadar in LXC 100 → Ollama in LXC 101 → <code>http://192.168.178.101:11434</code>. Keine Cloud-KI erforderlich.</p>
+</form>
+</div>
+
+<div class="card">
+<h2>➕ Preis überwachen</h2>
+<p class="hint">Nicht nur Produkte: Heizöl, Flüssiggas, Benzin, lokale Tankstellen, Lebensmittel, Baumaterial, Verbrauchsmaterial und alles mit einer beobachtbaren Preisquelle.</p>
+<form method="post" action="/watches"><div class="grid">
+<label>Name<input name="name" placeholder="Flüssiggas – Lieferant X" required></label>
+<label>URL<input name="url" type="url" placeholder="https://example.com/product" required></label>
+<label>Kategorie<select name="category">{% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}</select></label>
+<label>CSS selector (optional)<input name="selector" placeholder=".price, [data-price], #product-price"></label>
+<label>Zielpreis (optional)<input name="target_price" placeholder="0.79"></label>
+<label>Preis kaufen unter (optional)<input name="buy_below" placeholder="0.75"></label>
+<label>Einheit<select name="unit"><option value="">keine</option>{% for u in units %}<option value="{{ u }}">{{ u }}</option>{% endfor %}</select></label>
+<label>Menge pro Packung<input name="pack_quantity" type="number" step="any" placeholder="750"></label>
+<label>Verbrauch / Monat<input name="consumption_per_month" type="number" step="any" placeholder="125"></label>
+<label>Bestand aktuell<input name="stock_quantity" type="number" step="any" placeholder="420"></label>
+<label>Kaufen wenn Restbestand (Tage)<input name="buy_when_days_left" type="number" step="any" placeholder="30"></label>
+<label>Intervall (Sekunden)<input name="interval_seconds" type="number" min="300" value="{{ default_interval }}"></label>
+</div><p class="hint">Beispiel Flüssiggas: Einheit „l“, Verbrauch „125“ L/Monat, Bestand „420“ L. PriceRadar berechnet daraus die verbleibenden Tage und kann ein persönliches Kauf-Fenster anzeigen.</p><button class="btn" type="submit">Überwachen & sofort prüfen</button></form>
+</div>
+
+<div class="card"><h2>📊 Persönlicher Markt</h2><p class="hint">Die langfristige Idee: beobachtete Preise, Verbrauchszyklen und Bestände ergeben Preisverläufe, Kauf-Fenster und später einen persönlichen Preisindex.</p>
+{% if watches %}<table><tr><th>Artikel</th><th>Preis</th><th>Historie</th><th>Bedarf</th><th>Kauf-Fenster</th><th>Aktionen</th></tr>
+{% for w in watches %}<tr>
+<td><strong>{{ w.name }}</strong><br><span class="muted">{{ w.category }}{% if w.unit %} · {{ w.unit }}{% endif %}</span>{% if w.selector %}<br><code>{{ w.selector }}</code>{% endif %}</td>
+<td class="price">{% if w.last_price is not none %}{{ '%.2f'|format(w.last_price) }} {{ w.currency or 'EUR' }}{% else %}—{% endif %}{% if w.buy_below is not none %}<br><span class="hint">Ziel: ≤ {{ '%.2f'|format(w.buy_below) }}</span>{% endif %}</td>
+<td>{% if w.lowest_price is not none %}Tief: <strong>{{ '%.2f'|format(w.lowest_price) }} {{ w.currency or 'EUR' }}</strong>{% else %}—{% endif %}<br><span class="hint">{{ w.checks }} Checks</span></td>
+<td>{% if w.stock_quantity is not none %}Bestand: {{ w.stock_quantity }}{% if w.unit %} {{ w.unit }}{% endif %}{% endif %}{% if w.days_left is not none %}<br><span class="hint">ca. {{ w.days_left }} Tage</span>{% endif %}</td>
+<td>{% if w.buy_state == 'buy' %}<span class="buy">🟢 JETZT KAUFEN</span>{% elif w.buy_state == 'soon' %}<span class="soon">🟡 BALD KAUFEN</span>{% elif w.buy_state == 'watch' %}<span class="watch">🔵 BEOBACHTEN</span>{% else %}—{% endif %}</td>
+<td><div class="row"><form method="post" action="/watches/{{ w.id }}/check"><button class="btn">Check</button></form><form method="post" action="/watches/{{ w.id }}/toggle"><button class="btn">{% if w.active %}Pause{% else %}Resume{% endif %}</button></form><form method="post" action="/watches/{{ w.id }}/delete" onsubmit="return confirm('Delete this watch?')"><button class="btn danger">Delete</button></form></div><div class="hint">{% if w.last_status == 'ok' %}OK{% elif w.last_status == 'error' %}<span class="bad">{{ w.last_error }}</span>{% else %}pending{% endif %} · {{ w.last_checked or '' }}</div></td>
+</tr>{% endfor %}</table>{% else %}<p class="muted">Noch keine Preise überwacht.</p>{% endif %}
+</div>
+
+<div class="card"><h2>🧭 Die 4 Ebenen</h2><div class="grid"><div><h3>1. Monitor</h3><p class="muted">Webseiten, APIs, PDFs, lokale Preisquellen und später manuelle/Import-Quellen beobachten.</p></div><div><h3>2. History</h3><p class="muted">Preisverläufe, Tiefs, Durchschnitte, Trends und persönliche Preisindizes aufbauen.</p></div><div><h3>3. Consumption</h3><p class="muted">Verbrauch, Bestand und Kaufzyklen kennen. Daraus ergibt sich, wann ein Vorrat knapp wird.</p></div><div><h3>4. Intelligence</h3><p class="muted">Buy Windows, Anomalien, Warenkorb-Optimierung und optionale lokale KI für Normalisierung und Entscheidungen.</p></div></div></div>
+<div class="muted">PriceRadar 0.4.1 · <a href="/health" style="color:#9db8ff">health</a> · <a href="/api/market" style="color:#9db8ff">market API</a></div>
+</main>
+<script>
+async function testOllama(){
+ const url=document.getElementById('ollama-url').value;
+ const status=document.getElementById('ollama-status'); status.textContent='⏳ Verbindung wird geprüft…';
+ const body=new URLSearchParams({url});
+ try{const r=await fetch('/api/ollama/test',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body}); const d=await r.json();
+   if(d.ok){status.className='status success';status.textContent='✓ Verbunden · '+d.models.length+' Modelle gefunden'; populateModels(d.models);}
+   else{status.className='status error';status.textContent='✗ '+(d.error||'Verbindung fehlgeschlagen');}
+ }catch(e){status.className='status error';status.textContent='✗ '+e;}
+}
+async function loadModels(){
+ const url=document.getElementById('ollama-url').value; const status=document.getElementById('ollama-status'); status.textContent='⏳ Modelle werden geladen…';
+ try{const r=await fetch('/api/ollama/models'); const d=await r.json(); if(d.ok){populateModels(d.models);status.className='status success';status.textContent='✓ '+d.models.length+' Modelle gefunden';}else{status.className='status error';status.textContent='✗ '+d.error;}}
+ catch(e){status.className='status error';status.textContent='✗ '+e;}
+}
+function populateModels(models){const select=document.getElementById('ollama-model');const current=select.value;select.innerHTML='';models.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;if(m===current)o.selected=true;select.appendChild(o)});if(!models.length){const o=document.createElement('option');o.value=current;o.textContent=current;select.appendChild(o)}}
+</script>
+</body></html>
