@@ -38,6 +38,11 @@ CREATE TABLE IF NOT EXISTS price_history (
     source TEXT,
     FOREIGN KEY(watch_id) REFERENCES watches(id) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 MIGRATIONS = {
@@ -63,7 +68,6 @@ def init_db():
         for column, statement in MIGRATIONS.items():
             if column not in existing:
                 con.execute(statement)
-        # Preserve the existing user interval as the adaptive polling baseline.
         con.execute(
             "UPDATE watches SET polling_base_seconds=COALESCE(polling_base_seconds, interval_seconds, ?), "
             "polling_min_seconds=COALESCE(polling_min_seconds, ?), "
@@ -72,6 +76,21 @@ def init_db():
         )
         con.execute("PRAGMA journal_mode=WAL")
         con.execute("PRAGMA foreign_keys=ON")
+
+
+def get_setting(key: str, default=None):
+    with connect() as con:
+        row = con.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def set_setting(key: str, value: str):
+    with connect() as con:
+        con.execute(
+            "INSERT INTO app_settings(key,value,updated_at) VALUES(?,?,CURRENT_TIMESTAMP) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP",
+            (key, value),
+        )
 
 
 @contextmanager
